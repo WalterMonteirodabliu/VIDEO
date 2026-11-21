@@ -6,7 +6,7 @@ from PIL import Image
 import telao as T
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(T.HERE, "..", "output")
-FULL_LEN = T.REVEAL_START + 6 * T.LOOP_T     # intro + 6 ciclos do loop
+FULL_LEN = T.REVEAL_START + 6 * T.LOOP_T     # intro + 6 ciclos do loop (termina emendando no Loop)
 A = None
 
 def init():
@@ -14,12 +14,7 @@ def init():
     A = T.build_assets()
 
 def full_frame(i):
-    s = i / T.FPS
-    if s < T.INTRO_LEN:
-        rgb, _ = T.intro_frame(A, s)
-    else:
-        rgb = T.art_frame(A, s - T.REVEAL_START)
-    return T.to_u8(rgb, i).tobytes()
+    return T.to_u8(T.full_frame(A, i / T.FPS), i).tobytes()
 
 def loop_frame(i):
     return T.to_u8(T.art_frame(A, i / T.FPS), i).tobytes()
