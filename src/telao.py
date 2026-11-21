@@ -34,14 +34,15 @@ INTRO_LEN = 4.6            # depois disso nao ha mais faiscas da intro
 ENTR = {
     "sub":   (4.50, 0.80),   # "Especial de Natal" (maquina de escrever)
     "title": (4.95, 3.00),   # "O Autor da Historia" escrito por uma pena dourada
-    "date":  (7.55, 0.90),   # "20 de dezembro | 19h" (maquina de escrever)
-    "logo":  (5.80, 0.80),
-    "line":  (6.15, 0.65),
-    "t1":    (6.30, 0.65),
-    "t2":    (6.45, 0.65),
-    "t3":    (6.60, 0.65),
+    # depois que a pena termina, o resto aparece
+    "date":  (7.95, 0.90),   # "20 de dezembro | 19h" (maquina de escrever)
+    "logo":  (8.35, 0.80),
+    "line":  (8.70, 0.65),
+    "t1":    (8.85, 0.65),
+    "t2":    (9.00, 0.65),
+    "t3":    (9.15, 0.65),
 }
-ENTR_DONE = 8.6
+ENTR_DONE = 10.0
 
 # ---- camera entrando no estabulo (atravessa a porta)
 DOLLY_START = 3.15
@@ -55,7 +56,7 @@ GOLD = np.array([1.0, 0.80, 0.52], np.float32)
 WARM_WHITE = np.array([1.0, 0.95, 0.85], np.float32)
 
 STAR_START = (960.0, 470.0)
-STAR_END = (952.0, 78.0)     # onde a luz do ceu entra na arte
+STAR_END = (1083.0, 78.0)    # onde a luz do ceu entra na arte (feixe do titulo)
 STAR_R = 34.0                # raio da estrela cartunesca (px)
 
 # cores da estrela cartunesca
@@ -224,25 +225,25 @@ def build_assets():
     def background(X, Y):
         bg = np.zeros(X.shape + (3,), np.float32)
         bg[:] = np.array([0.020, 0.013, 0.007], np.float32)
-        h1 = np.exp(-(((X - 960) / 620) ** 2 + ((Y - 230) / 380) ** 2))
-        bg += h1[..., None] * np.array([0.060, 0.036, 0.015], np.float32)
-        h2 = np.exp(-(((X - 340) / 520) ** 2 + ((Y - 250) / 320) ** 2))
-        bg += h2[..., None] * np.array([0.022, 0.014, 0.006], np.float32)
+        h1 = np.exp(-(((X - 1000) / 900) ** 2 + ((Y - 200) / 420) ** 2))
+        bg += h1[..., None] * np.array([0.045, 0.028, 0.012], np.float32)
+        h2 = np.exp(-(((X - 300) / 420) ** 2 + ((Y - 330) / 300) ** 2))
+        bg += h2[..., None] * np.array([0.05, 0.030, 0.012], np.float32)
         return bg
     base = background(xx, yy)
     ey, ex = np.mgrid[-PAD:H + PAD, -PAD:W + PAD].astype(np.float32)
     A.ext = background(ex, ey)
 
-    # ---- presepio no centro, embaixo da luz
-    nat = flyer[780:1400, 150:880]
+    # ---- presepio na esquerda
+    nat = flyer[780:1400, 80:900]
     nh = H + 8
     sc = nh / 620.0
     nw = int(round(nat.shape[1] * sc))
     nat = resize(nat, nw, nh)
-    nm = feather_mask(nh, nw, left=130, right=130, top=60, bottom=0)
-    A.nat_x0 = 960 - nw // 2
+    nm = feather_mask(nh, nw, left=70, right=150, top=40, bottom=0)
+    A.nat_x0 = -40
     paste(base, nat, nm, A.nat_x0, -4)
-    A.baby = (A.nat_x0 + (430 - 150) * sc, -4 + (1145 - 780) * sc)
+    A.baby = (A.nat_x0 + (430 - 80) * sc, -4 + (1145 - 780) * sc)
 
     # ---- titulo dourado recortado do flyer (sem o feixe de luz de tras)
     ttl = flyer[240:770, 10:890]
@@ -250,23 +251,23 @@ def build_assets():
     ttl = resize(ttl, tw, H)
     m, plate = title_matte(ttl)
     r0, r1 = 66, 436
-    st = 0.80
+    st = 1.0
     pw, ph_ = int(round(tw * st)), int(round((r1 - r0) * st))
     prgb = resize(ttl[r0:r1], pw, ph_)
     pa = np.asarray(Image.fromarray((m[r0:r1] * 255).astype(np.uint8)).resize((pw, ph_), Image.LANCZOS)
                     ).astype(np.float32) / 255.0
-    TX, TY = 350, 252
+    TX, TY = 960, (r0 + r1) // 2
     x0, y0 = TX - pw // 2, TY - ph_ // 2
     # feixe de luz original do flyer atras do titulo (coluna inteira, sem os textos)
     beam_bg = resize(np.clip(plate, 0, 1), pw, H)
-    paste(base, beam_bg, feather_mask(H, pw, left=50, right=50, top=0, bottom=0), x0, 0)
-    paste(base, nat, nm, A.nat_x0, -4)
+    paste(base, beam_bg, feather_mask(H, pw, left=40, right=40, top=0, bottom=0), x0, 0)
+    A.title_x0 = x0
     # titulo original (letras + feixe) por cima
     A.title_rgb = np.zeros((H, W, 3), np.float32)
     A.title_a = np.zeros((H, W), np.float32)      # recorte do titulo com bordas suaves
     A.title_m = np.zeros((H, W), np.float32)      # so as letras (para a pena revelar)
     A.title_rgb[y0:y0 + ph_, x0:x0 + pw] = prgb
-    A.title_a[y0:y0 + ph_, x0:x0 + pw] = feather_mask(ph_, pw, left=50, right=50, top=24, bottom=24)
+    A.title_a[y0:y0 + ph_, x0:x0 + pw] = feather_mask(ph_, pw, left=40, right=40, top=24, bottom=24)
     A.title_m[y0:y0 + ph_, x0:x0 + pw] = pa
     Lt = lum(A.title_rgb)
     A.letters = (A.title_m * _smooth(0.40, 0.62, Lt)).astype(np.float32)
@@ -289,11 +290,11 @@ def build_assets():
     # subtitulo e data (maquina de escrever)
     f_sub = ImageFont.truetype(os.path.join(FONT_DIR, "Inter-SemiBold.otf"), 31)
     f_date = ImageFont.truetype(os.path.join(FONT_DIR, "Inter-Bold.otf"), 38)
-    A.sub = TypeSprite("Especial de Natal", f_sub, (226, 194, 152, 255), TX, 80)
-    A.date = TypeSprite("20 de dezembro | 19h", f_date, (255, 255, 255, 255), TX, 440)
+    A.sub = TypeSprite("Especial de Natal", f_sub, (226, 194, 152, 255), TX, 50)
+    A.date = TypeSprite("20 de dezembro | 19h", f_date, (255, 255, 255, 255), TX, 466)
 
     # ---- coluna da direita
-    cx = 1598
+    cx = 1652
     logo = ref[418:490, 840:1080]
     la = _smooth(0.30, 0.85, logo[..., 0])
     lh, lw = la.shape
@@ -322,8 +323,8 @@ def build_assets():
     A.vig = (1 - 0.35 * np.clip(vx ** 2 * 0.6 + vy ** 2 * 0.25, 0, 1))[..., None].astype(np.float32)
 
     # ---- feixe de luz do ceu (geometria em coordenadas da arte)
-    A.beam_o = (1040.0, -420.0)
-    bx, by = A.baby
+    A.beam_o = (1100.0, -700.0)
+    bx, by = 1072.0, 540.0          # o feixe atravessa a coluna do titulo
     A.beam_th0 = math.atan2(bx - A.beam_o[0], by - A.beam_o[1])
     A.beam_len = math.hypot(bx - A.beam_o[0], by - A.beam_o[1])
     A.beam_top = (A.beam_o[0] + math.tan(A.beam_th0) * (0 - A.beam_o[1]), 0.0)
@@ -352,16 +353,19 @@ def build_assets():
     ox, oy = A.beam_top
     px_beam = ox + (bx - ox) * along + rng.normal(0, 38, n) * (0.6 + along)
     py_beam = oy + (by - oy) * along
+    nbx, nby = A.baby
+    px_nat = rng.normal(nbx + 30, 150, n)
+    py_nat = rng.uniform(-20, H + 20, n)
     A.dust = dict(
-        x=np.where(grp < 0.7, px_beam, rng.uniform(0, W, n)).astype(np.float32),
-        y=np.where(grp < 0.7, py_beam, rng.uniform(-20, H + 20, n)).astype(np.float32),
+        x=np.where(grp < 0.45, px_beam, np.where(grp < 0.75, px_nat, rng.uniform(0, W, n))).astype(np.float32),
+        y=np.where(grp < 0.45, py_beam, np.where(grp < 0.75, py_nat, rng.uniform(-20, H + 20, n))).astype(np.float32),
         phase=rng.random(n).astype(np.float32),
         life_div=rng.choice([1, 2], n),
         vy=rng.uniform(-14, -4, n).astype(np.float32),
         sway=rng.uniform(4, 16, n).astype(np.float32),
         sway_k=rng.choice([1, 2, 3], n),
         size=rng.uniform(0.7, 2.2, n).astype(np.float32),
-        bri=(rng.uniform(0.3, 1.0, n) * np.where(grp < 0.7, 1.0, 0.35)).astype(np.float32),
+        bri=(rng.uniform(0.3, 1.0, n) * np.where(grp < 0.75, 1.0, 0.4)).astype(np.float32),
     )
     return A
 
@@ -640,7 +644,7 @@ def beam_light(A, z, ph, amb):
     fall = 1 - 0.8 * _smooth(Lb - 40, Lb + 150, d)
     top = 1 + 0.5 * (1 - _smooth(430, Lb, d))
     pulse = 0.86 + 0.14 * math.sin(2 * ph) + 0.05 * math.sin(5 * ph + 1)
-    I = (0.26 * cone * streak + 0.24 * core) * fall * top * pulse * amb
+    I = (0.20 * cone * streak + 0.16 * core) * fall * top * pulse * amb
     out = np.zeros((H, W), np.float32)
     out[:, X0:X1] = I
     return out, pulse
@@ -737,7 +741,7 @@ def art_frame(A, t, s=None):
         sweep_t = (t - 1.0) / 2.4
         if 0 <= sweep_t <= 1:
             pos = -300 + sweep_t * 1600
-            band = np.exp(-((A.xx - 20 - pos * 0.45 - (A.yy - 256) * 0.45) / 60) ** 2)
+            band = np.exp(-((A.xx - A.title_x0 - pos - (A.yy - 256) * 0.45) / 70) ** 2)
             f += (band * A.letters * deco)[..., None] * np.array([0.55, 0.45, 0.30], np.float32)
         for i, (gx, gy) in enumerate(A.glints):
             c = (t - (3.6 + i * 1.05)) / 0.9
