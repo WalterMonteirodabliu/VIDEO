@@ -22,7 +22,7 @@ def loop_frame(i):
 def encode(path, fn, n):
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24",
            "-s", f"{T.W}x{T.H}", "-r", str(T.FPS), "-i", "-",
-           "-c:v", "libx264", "-preset", "slow", "-crf", "15", "-pix_fmt", "yuv420p",
+           "-c:v", "libx264", "-preset", "slow", "-crf", "12", "-pix_fmt", "yuv420p",
            "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
            "-movflags", "+faststart", path]
     p = subprocess.Popen(cmd, stdin=subprocess.PIPE)

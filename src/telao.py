@@ -12,7 +12,9 @@ import math
 import os
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+import stable
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 W, H = 1920, 512
@@ -30,16 +32,23 @@ INTRO_LEN = 4.6            # depois disso nao ha mais faiscas da intro
 
 # ---- entradas dos textos (inicio, duracao) em tempo absoluto do video
 ENTR = {
-    "sub":   (3.35, 0.70),   # "Especial de Natal"
-    "title": (3.60, 1.50),   # "O Autor da Historia" (escrito por um traco de luz)
-    "date":  (4.80, 0.70),   # "20 de dezembro | 19h"
-    "logo":  (5.05, 0.80),
-    "line":  (5.40, 0.65),
-    "t1":    (5.55, 0.65),
-    "t2":    (5.70, 0.65),
-    "t3":    (5.85, 0.65),
+    "sub":   (4.55, 0.70),   # "Especial de Natal"
+    "title": (4.80, 1.50),   # "O Autor da Historia" (escrito por um traco de luz)
+    "date":  (6.00, 0.70),   # "20 de dezembro | 19h"
+    "logo":  (6.25, 0.80),
+    "line":  (6.60, 0.65),
+    "t1":    (6.75, 0.65),
+    "t2":    (6.90, 0.65),
+    "t3":    (7.05, 0.65),
 }
-ENTR_DONE = 6.65
+ENTR_DONE = 7.85
+
+# ---- camera entrando no estabulo (atravessa a porta)
+DOLLY_START = 3.15
+DOLLY_END = 5.0
+DOOR_END_SCALE = 2.6       # quanto a porta (primeiro plano) cresce
+SCENE_DEPTH = 3.0          # distancia relativa da cena em relacao a porta (paralaxe)
+PAD = 220                  # margem (espelhada) da arte para o movimento de camera
 
 CHROMA = np.array([0.0, 1.0, 0.0], np.float32)  # verde puro #00FF00
 GOLD = np.array([1.0, 0.80, 0.52], np.float32)
@@ -264,14 +273,25 @@ def build_assets():
     fill = (_smooth(r0 - 6, r0, ty) * (1 - _smooth(r1, r1 + 6, ty)))[..., None]
     plate = ttl * (1 - fill) + interp * fill
     D = (ttl - plate) * tmask[..., None]
-    A.D = {k: (D * band_m[k][..., None]).astype(np.float32) for k in bands}
-    A.plate_col = plate
     paste(base, plate, tmask, A.title_x0, 0)
+
+    # ---- elementos do estabulo (toras do teto, caibros, postes, palha)
+    ext_rgb, ext_a = stable.build_mid(A.baby[0], pad=PAD)
+    mid_rgb = ext_rgb[PAD:PAD + H, PAD:PAD + W]
+    mid_a = ext_a[PAD:PAD + H, PAD:PAD + W]
+    base = base * (1 - mid_a[..., None]) + mid_rgb * mid_a[..., None]
+    ext = np.zeros((H + 2 * PAD, W + 2 * PAD, 3), np.float32)
+    ext[:] = np.array([0.020, 0.013, 0.007], np.float32)
+    A.ext = ext * (1 - ext_a[..., None]) + ext_rgb * ext_a[..., None]
+    a_col = mid_a[:, A.title_x0:A.title_x0 + tw]
+    D = D * (1 - a_col[..., None])
+    A.D = {k: (D * band_m[k][..., None]).astype(np.float32) for k in bands}
+    A.door = stable.build_door().convert("RGBa")
 
     # mascara das letras douradas
     warm = ttl[..., 0] - ttl[..., 2]
     letters = _smooth(0.42, 0.62, L) * _smooth(0.10, 0.22, warm) * band_m["title"]
-    A.letters_col = (letters * tmask).astype(np.float32)
+    A.letters_col = (letters * tmask * (1 - a_col)).astype(np.float32)
     Lf = np.zeros((H, W), np.float32)
     Lf[:, A.title_x0:A.title_x0 + tw] = A.letters_col
     A.letters = Lf
@@ -308,7 +328,8 @@ def build_assets():
 
     # ---- arte final (tudo ja entrou)
     A.art = compose(A, None)
-    A.art_img = to_img(A.art)
+    A_EXT[0] = A.ext
+    A.art_img = pad_img(A.art)
 
     cand = np.argwhere((Lf > 0.9) & (lum(A.art) > 0.80))
     rng = np.random.default_rng(7)
@@ -495,18 +516,21 @@ def art_frame(A, t, s=None):
     t = t % LOOP_T
     ph = 2 * math.pi * t / LOOP_T
     entering = s is not None and s < ENTR_DONE
-    amb = 1.0 if s is None else 0.25 + 0.75 * smooth(REVEAL_START, REVEAL_END + 1.0, s)
+    amb = 1.0 if s is None else 0.25 + 0.75 * smooth(DOLLY_START, DOLLY_END, s)
+    fs, zd = dolly(s)
     deco = 1.0 if s is None else smooth(ENTR_DONE, ENTR_DONE + 0.5, s)
 
-    im = to_img(compose(A, s)) if entering else A.art_img
-    z = 1.006 + 0.012 * (0.5 - 0.5 * math.cos(ph))   # nunca 1.0: nitidez constante
+    im = pad_img(compose(A, s)) if entering else A.art_img
+    z = (1.006 + 0.012 * (0.5 - 0.5 * math.cos(ph))) * zd   # nunca 1.0: nitidez constante
     cx, cy = 960, 240
-    im = im.transform((W, H), Image.AFFINE, (1 / z, 0, cx - cx / z, 0, 1 / z, cy - cy / z),
+    im = im.transform((W, H), Image.AFFINE,
+                      (1 / z, 0, cx - cx / z + PAD, 0, 1 / z, cy - cy / z + PAD),
                       resample=Image.BICUBIC)
     f = np.asarray(im).astype(np.float32) / 255.0
 
     glow = (0.10 + 0.05 * math.sin(ph * 2)) * amb
     bx, by = A.baby
+    bx, by = cx + (bx - cx) * z, cy + (by - cy) * z
     g = np.exp(-(((A.xx - bx) / 170) ** 2 + ((A.yy - by) / 110) ** 2))
     f += g[..., None] * GOLD * glow
 
@@ -532,8 +556,41 @@ def art_frame(A, t, s=None):
                          rot=0.3 * c, color=WARM_WHITE)
 
     dust_layer(A, t, f, amb)
+
+    # porta do estabulo em primeiro plano (so na entrada)
+    if fs is not None and fs < DOOR_END_SCALE * 0.999:
+        dimg = A.door.transform((W, H), Image.AFFINE,
+                                (1 / fs, 0, cx - cx / fs, 0, 1 / fs, cy - cy / fs),
+                                resample=Image.BICUBIC)
+        blur = 0.3 + 3.5 * (fs - 1) / (DOOR_END_SCALE - 1)
+        dimg = dimg.filter(ImageFilter.GaussianBlur(blur))
+        da = np.asarray(dimg).astype(np.float32) / 255.0      # RGBa (pre-multiplicado)
+        f = f * (1 - da[..., 3:4]) + da[..., :3]
     f *= A.vig
     return f
+
+
+def dolly(s):
+    """(escala da porta, escala da cena) no tempo s. Paralaxe de uma camera que avanca."""
+    dmax = 1 - 1 / DOOR_END_SCALE
+    z0 = (SCENE_DEPTH - dmax) / SCENE_DEPTH
+    if s is None or s >= DOLLY_END:
+        return None, 1.0
+    u = ease_in_out((s - DOLLY_START) / (DOLLY_END - DOLLY_START))
+    dz = u * dmax                      # quanto a camera andou
+    fs = 1 / (1 - dz)
+    zd = z0 * SCENE_DEPTH / (SCENE_DEPTH - dz)
+    return fs, zd
+
+
+def pad_img(a):
+    """Arte dentro do estabulo maior (para nao aparecer borda durante o movimento)."""
+    p = A_EXT[0].copy()
+    p[PAD:PAD + H, PAD:PAD + W] = a
+    return to_img(p)
+
+
+A_EXT = [None]
 
 
 # ---------------------------------------------------------------------------
