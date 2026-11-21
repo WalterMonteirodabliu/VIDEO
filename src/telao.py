@@ -248,7 +248,7 @@ def build_assets():
     ttl = flyer[240:770, 10:890]
     tw = int(round(ttl.shape[1] * H / ttl.shape[0]))
     ttl = resize(ttl, tw, H)
-    m = title_matte(ttl)
+    m, plate = title_matte(ttl)
     r0, r1 = 66, 436
     st = 0.80
     pw, ph_ = int(round(tw * st)), int(round((r1 - r0) * st))
@@ -257,19 +257,26 @@ def build_assets():
                     ).astype(np.float32) / 255.0
     TX, TY = 350, 252
     x0, y0 = TX - pw // 2, TY - ph_ // 2
+    # feixe de luz original do flyer atras do titulo (coluna inteira, sem os textos)
+    beam_bg = resize(np.clip(plate, 0, 1), pw, H)
+    paste(base, beam_bg, feather_mask(H, pw, left=50, right=50, top=0, bottom=0), x0, 0)
+    paste(base, nat, nm, A.nat_x0, -4)
+    # titulo original (letras + feixe) por cima
     A.title_rgb = np.zeros((H, W, 3), np.float32)
-    A.title_a = np.zeros((H, W), np.float32)
+    A.title_a = np.zeros((H, W), np.float32)      # recorte do titulo com bordas suaves
+    A.title_m = np.zeros((H, W), np.float32)      # so as letras (para a pena revelar)
     A.title_rgb[y0:y0 + ph_, x0:x0 + pw] = prgb
-    A.title_a[y0:y0 + ph_, x0:x0 + pw] = pa
+    A.title_a[y0:y0 + ph_, x0:x0 + pw] = feather_mask(ph_, pw, left=50, right=50, top=24, bottom=24)
+    A.title_m[y0:y0 + ph_, x0:x0 + pw] = pa
     Lt = lum(A.title_rgb)
-    A.letters = (A.title_a * _smooth(0.40, 0.62, Lt)).astype(np.float32)
+    A.letters = (A.title_m * _smooth(0.40, 0.62, Lt)).astype(np.float32)
 
     # linhas do titulo ("O Autor" / "da" / "Historia") para a pena escrever
     cuts = [(70, 212), (212, 262), (262, 432)]
     A.lines = []
     for a0, a1 in cuts:
         ya, yb = y0 + (a0 - r0) * st, y0 + (a1 - r0) * st
-        rows = A.title_a[int(ya):int(yb)]
+        rows = A.title_m[int(ya):int(yb)]
         cols = np.where(rows.max(axis=0) > 0.5)[0]
         A.lines.append(dict(y0=ya, y1=yb, x0=float(cols.min()), x1=float(cols.max())))
     A.line_w = []
@@ -393,7 +400,7 @@ def title_matte(ttl):
     near = box_blur(core.astype(np.float32), 3, 1) > 0.02
     dark = ((Lp - L) > 0.03 + 0.05 * bw) & near
     m = (core | dark | (near & ((L - Lp) > 0.045 + 0.2 * bw))).astype(np.float32)
-    return np.clip(box_blur(m, 1, 1) * 1.3, 0, 1) * band
+    return np.clip(box_blur(m, 1, 1) * 1.3, 0, 1) * band, plate
 
 
 class TypeSprite:
@@ -551,9 +558,12 @@ def compose(A, s):
 
     # titulo: escrito por uma pena dourada, linha por linha
     p = entr(s, "title")
-    if p > 0:
+    if True:
         if p >= 1:
             rev = np.ones((H, W), np.float32)
+            fronts = None
+        elif p <= 0:
+            rev = np.zeros((H, W), np.float32)
             fronts = None
         else:
             tip, fronts, vis = quill_state(A, p)
@@ -561,6 +571,7 @@ def compose(A, s):
             rev = np.zeros((H, W), np.float32)
             for wgt, fx in zip(A.line_w, fronts):
                 rev += wgt * _smooth(fx + 4, fx - 26, xs)
+        # antes da pena passar so aparece o feixe; atras dela, o titulo original
         a = A.title_a * rev
         f = f * (1 - a[..., None]) + A.title_rgb * a[..., None]
         if fronts is not None:

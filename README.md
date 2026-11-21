@@ -8,7 +8,7 @@ Arquivos em `output/`:
 | `Loop_Arte_1920x512.mp4` | Só a arte animada, 10 s, loop perfeito (pode repetir infinito) |
 | `Arte_Telao_1920x512.png` | Arte estática do telão |
 
-Layout: título "O Autor da História" à esquerda (com "Especial de Natal" e a data), presépio no centro sob a luz que vem do céu, logo e endereço à direita.
+Layout: título "O Autor da História" à esquerda (original do flyer, com o feixe de luz atrás; "Especial de Natal" e a data), presépio no centro sob a luz que vem do céu, logo e endereço à direita.
 
 Linha do tempo do vídeo completo:
 - 0–1,25 s estrela cartunesca sobe girando sobre fundo verde (#00FF00) · 1,25–1,55 s quica no topo · 1,55–2,45 s brilha
