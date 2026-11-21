@@ -22,22 +22,24 @@ LOOP_T = 10.0              # periodo do loop da arte (s)
 # ---- linha do tempo da introducao (s)
 RISE_END = 1.25            # estrela chega ao topo (subida rapida)
 SHINE_START = 1.55         # depois de "quicar" no topo, brilha
-REVEAL_START = 2.45        # estrela cresce e vira a "janela" que revela a arte
-REVEAL_END = 3.45
-INTRO_LEN = 4.3            # depois disso nao ha mais faiscas da intro
+REVEAL_START = 2.45        # clarao de luz sai da estrela
+FLASH_FULL = REVEAL_START + 0.35   # tela toda clara
+FLASH_FADE = FLASH_FULL + 0.12     # comeca a clarear revelando a arte
+REVEAL_END = FLASH_FADE + 0.90
+INTRO_LEN = 4.6            # depois disso nao ha mais faiscas da intro
 
 # ---- entradas dos textos (inicio, duracao) em tempo absoluto do video
 ENTR = {
-    "sub":   (3.00, 0.70),   # "Especial de Natal"
-    "title": (3.25, 1.50),   # "O Autor da Historia" (escrito por um traco de luz)
-    "date":  (4.45, 0.70),   # "20 de dezembro | 19h"
-    "logo":  (4.70, 0.80),
-    "line":  (5.05, 0.65),
-    "t1":    (5.20, 0.65),
-    "t2":    (5.35, 0.65),
-    "t3":    (5.50, 0.65),
+    "sub":   (3.35, 0.70),   # "Especial de Natal"
+    "title": (3.60, 1.50),   # "O Autor da Historia" (escrito por um traco de luz)
+    "date":  (4.80, 0.70),   # "20 de dezembro | 19h"
+    "logo":  (5.05, 0.80),
+    "line":  (5.40, 0.65),
+    "t1":    (5.55, 0.65),
+    "t2":    (5.70, 0.65),
+    "t3":    (5.85, 0.65),
 }
-ENTR_DONE = 6.3
+ENTR_DONE = 6.65
 
 CHROMA = np.array([0.0, 1.0, 0.0], np.float32)  # verde puro #00FF00
 GOLD = np.array([1.0, 0.80, 0.52], np.float32)
@@ -614,10 +616,10 @@ def _intro_particles():
                               r=rng.uniform(5, 11), rot=rng.uniform(0, 1), spin=rng.normal(0, 4),
                               kind="sparkle" if rng.random() < 0.6 else "dot", drag=False))
         s += 1.0 / FPS
-    for _ in range(70):   # explosao de brilhinhos quando a estrela vira janela
+    for _ in range(70):   # brilhinhos voando enquanto o clarao se dissipa
         a = rng.uniform(0, 2 * math.pi)
         sp = rng.uniform(250, 1100)
-        parts.append(dict(t0=REVEAL_START + rng.uniform(0, 0.12), x=STAR_END[0], y=STAR_END[1],
+        parts.append(dict(t0=FLASH_FADE + rng.uniform(0, 0.12), x=STAR_END[0], y=STAR_END[1],
                           vx=math.cos(a) * sp, vy=math.sin(a) * sp * 0.75, life=rng.uniform(0.7, 1.4),
                           r=rng.uniform(6, 16), rot=rng.uniform(0, 1), spin=rng.normal(0, 5),
                           kind="sparkle" if rng.random() < 0.7 else "dot", drag=True))
@@ -660,10 +662,10 @@ def intro_frame(A, s):
     R = STAR_R * scale
     final_rot = star_state(REVEAL_START)[2] + 0.5
 
-    if s < REVEAL_START:
+    if s < REVEAL_START + 0.2:
         pulse = 0.0
         if s >= SHINE_START:
-            c = (s - SHINE_START) / (REVEAL_START - SHINE_START)
+            c = min((s - SHINE_START) / (REVEAL_START - SHINE_START), 1.0)
             pulse = math.sin(math.pi * clamp01(c / 0.6)) if c < 0.6 else 0.0
             pop = 1 + 0.38 * math.sin(math.pi * clamp01(c / 0.45)) if c < 0.45 else 1.0
             if c > 0.6:   # "carrega" (encolhe um pouco) antes de crescer
@@ -708,41 +710,35 @@ def intro_frame(A, s):
             rr = r * 0.32
             d.ellipse(((px - rr) * SS, (py - rr) * SS, (px + rr) * SS, (py + rr) * SS), fill=(255, 250, 220, 230))
 
-    M = np.zeros((H, W), np.float32)
-    Mo = Mi = None
-    inside = 0.0
-    if s >= REVEAL_START:
-        c = clamp01((s - REVEAL_START) / (REVEAL_END - REVEAL_START))
-        Ri = STAR_R * (2600.0 / STAR_R) ** (c ** 1.7)
-        rot_i = final_rot + 1.1 * ease_in_out(c)
-        if c < 1:
-            M, Mo, Mi = iris_masks(STAR_END[0], STAR_END[1], Ri, rot_i)
-        else:
-            M = np.ones((H, W), np.float32)
-        body = 1 - smooth(0.0, 0.18, c)   # estrela "cheia" que vai abrindo
-        if body > 0:
-            draw_cartoon_star(d, STAR_END[0], STAR_END[1], Ri, rot_i, alpha=255 * body)
-        artf = art_frame(A, s - REVEAL_START, s)
-        fl = math.exp(-((s - REVEAL_START - 0.1) / 0.3) ** 2)
-        dist = np.sqrt((A.xx - STAR_END[0]) ** 2 + (A.yy - STAR_END[1]) ** 2)
-        inside = np.clip(artf + (np.exp(-dist / 300) * fl * 0.8)[..., None] * WARM_WHITE, 0, 1)
+    # ---- clarao: a luz da estrela toma a tela toda e depois revela a arte
+    flash = None
+    if s < FLASH_FULL:
+        base = CHROMA * (1 - np.clip(E, 0, 1).max(axis=2, keepdims=True)) + np.clip(E, 0, 1)
+        if s >= REVEAL_START:
+            c = (s - REVEAL_START) / (FLASH_FULL - REVEAL_START)
+            r = 30 + 3000 * c ** 2.2
+            dist = np.sqrt((A.xx - STAR_END[0]) ** 2 + (A.yy - STAR_END[1]) ** 2)
+            flash = np.clip(1.6 * np.exp(-(dist / r) ** 2), 0, 1)
+            if c > 0.9:
+                flash = flash + (1 - flash) * smooth(0.9, 1.0, c)
+    else:
+        base = art_frame(A, s - REVEAL_START, s)
+        if s < REVEAL_END:
+            q = clamp01((s - FLASH_FADE) / (REVEAL_END - FLASH_FADE))
+            flash = np.full((H, W), (1 - q) ** 2.2, np.float32)
+            # o centro (onde estava a estrela) clareia por ultimo
+            dist = np.sqrt((A.xx - STAR_END[0]) ** 2 + (A.yy - STAR_END[1]) ** 2)
+            flash = np.clip(flash * (1 + 0.6 * np.exp(-dist / 500) * (1 - q)), 0, 1)
 
-    M3 = M[..., None]
-    Ec = np.clip(E, 0, 1)
-    ea = Ec.max(axis=2, keepdims=True)
-    outside = CHROMA * (1 - ea) + Ec
-    rgb = inside * M3 + outside * (1 - M3)
-
-    if Mo is not None:
-        ok = 1 - smooth(0.85, 1.0, c)
-        mo = (Mo * ok)[..., None]
-        rgb = rgb * (1 - mo) + np.array(C_OUT, np.float32) / 255 * mo
-        mi = (Mi * ok)[..., None]
-        rgb = rgb * (1 - mi) + np.array(C_BODY, np.float32) / 255 * mi
-
+    rgb = base
     o = np.asarray(ov.convert("RGBa").resize((W, H), Image.BOX)).astype(np.float32) / 255.0
     oa = o[..., 3:4]
     rgb = rgb * (1 - oa) + o[..., :3]          # RGBa = cor pre-multiplicada
+
+    if flash is not None:
+        fa = flash[..., None]
+        col = WARM_WHITE * (1 - fa) + np.array([1.0, 1.0, 0.97], np.float32) * fa
+        rgb = rgb * (1 - fa) + col * fa
     return np.clip(rgb, 0, 1)
 
 
